@@ -1,23 +1,56 @@
 #!/bin/bash
 set -e
+export PATH=/usr/bin:/bin
 
-DISPLAY_MANAGER="$(systemctl show -p Id --value display-manager)"
-case "${DISPLAY_MANAGER%.service}" in
-    plasmalogin) CONF_FILE="/etc/plasmalogin.conf.d/zz-steamos-autologin.conf";;
-    sddm) CONF_FILE="/etc/sddm.conf.d/zz-steamos-autologin.conf";;
-esac
-
-# Don't do anything if system is using unsupported display manager
-[[ -z "$CONF_FILE" ]] && exit 0
-
-# Session, gamescope or plasma
+# Default to gamescope if no argument is passed
 SESSION="${1:-gamescope-session.desktop}"
 
-if [[ ! -d "$(dirname "$CONF_FILE")" ]]; then
-    mkdir -p "$(dirname "$CONF_FILE")"
-fi
+# Grab the actual username of the real user sitting at the computer
+REAL_USER="${2:-$(logname)}"
 
-cat <<EOF > "$CONF_FILE"
+# Detect active Display Manager
+DISPLAY_MANAGER="$(systemctl show -p Id --value display-manager)"
+DM_NAME="${DISPLAY_MANAGER%.service}"
+
+case "$DM_NAME" in
+    plasmalogin)
+        CONF_FILE="/etc/plasmalogin.conf.d/zz-steamos-autologin.conf"
+        ;;
+    sddm)
+        CONF_FILE="/etc/sddm.conf.d/zz-steamos-autologin.conf"
+        ;;
+    *)
+        echo "Unsupported display manager: $DM_NAME" >&2
+        exit 1
+        ;;
+esac
+
+mkdir -p "$(dirname "$CONF_FILE")"
+
+# Apply Hybrid Autologin Logic
+if [[ "$SESSION" == *"gamescope"* ]]; then
+    # Gamescope Session -> Enable Autologin
+    cat <<EOF > "$CONF_FILE"
 [Autologin]
+User=$REAL_USER
+Session=$SESSION
+
+[Theme]
 Session=$SESSION
 EOF
+    echo "Gamescope mode set: Autologin enabled for user '$REAL_USER' in $CONF_FILE"
+else
+    # Plasma Desktop -> Require Password (Disable Autologin)
+    cat <<EOF > "$CONF_FILE"
+[Autologin]
+User=none
+Session=$SESSION
+
+[Theme]
+Session=$SESSION
+EOF
+    echo "Desktop mode set: Autologin disabled in $CONF_FILE (Password prompt forced)"
+fi
+
+# Recycle the display manager to apply changes immediately
+systemctl restart "$DISPLAY_MANAGER"

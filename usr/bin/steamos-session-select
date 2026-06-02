@@ -1,49 +1,33 @@
 #!/bin/bash
 set -e
 
+# Get the current logged-in user calling this script
+CURRENT_USER="${USER:-$(logname)}"
 
 case "$1" in
     'persistent')
         systemctl --user mask cachyos-gamescope-autologin.service
-        pkexec /usr/lib/steamos/steam-set-session plasma.desktop;;
+        pkexec /usr/lib/steamos/steam-set-session plasma.desktop "$CURRENT_USER";;
     'oneshot')
         systemctl --user unmask cachyos-gamescope-autologin.service
-        pkexec /usr/lib/steamos/steam-set-session gamescope-session.desktop;;
+        pkexec /usr/lib/steamos/steam-set-session gamescope-session.desktop "$CURRENT_USER";;
     'gamescope')
-        pkexec /usr/lib/steamos/steam-set-session gamescope-session.desktop
+        # Switches to Gamescope and triggers immediate automated login
+        pkexec /usr/lib/steamos/steam-set-session gamescope-session.desktop "$CURRENT_USER"
         qdbus6 org.kde.Shutdown /Shutdown org.kde.Shutdown.logout;;
     'plasma')
-        pkexec /usr/lib/steamos/steam-set-session plasma.desktop
-        steam -shutdown
-        systemctl --user stop gamescope-session.target;;
+        # Gracefully shut down background Steam, then switch to Plasma with Password lock
+        steam -shutdown || true
+        sleep 2
+        systemctl --user stop gamescope-session.target || true
+        
+        pkexec /usr/lib/steamos/steam-set-session plasma.desktop "$CURRENT_USER";;
     *)
         [[ -n "$1" ]] && echo -e "Unknown session '$1'\n"
         cat <<EOF
 Usage: $(basename "$0") <mode>
-
-Modes:
-  persistent
-      Enable persistent session mode.
-      The system will remember the last session you used and boot into it
-      next time. If you last used Gamescope, it will boot into Gamescope.
-      If you last used the desktop, it will boot into the desktop.
-
-  oneshot
-      Restore default oneshot behaviour.
-      Every fresh boot will start in Gamescope first, regardless of the
-      previously used session.
-
-  gamescope
-      Immediately switch to the Gamescope session.
-
-  plasma
-      Immediately switch to the desktop session.
-      This is the same action triggered by Steam's "Switch to Desktop".
-
-Example:
-    $(basename "$0") persistent
+Modes: persistent | oneshot | gamescope | plasma
 EOF
-
         exit 1;;
 esac
 
